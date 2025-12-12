@@ -26,7 +26,7 @@ interface HealthStatus {
 }
 
 @ApiTags('health')
-@Controller('health')
+@Controller()
 @Public()
 @SkipTenantCheck()
 export class HealthController {
@@ -38,7 +38,7 @@ export class HealthController {
     @Optional() @Inject(AI_PROVIDER) private aiProvider?: IAIProvider,
   ) {}
 
-  @Get()
+  @Get('health')
   @ApiOperation({ summary: 'Health check endpoint' })
   @ApiResponse({ status: 200, description: 'Service is healthy' })
   @ApiResponse({ status: 503, description: 'Service is unhealthy' })

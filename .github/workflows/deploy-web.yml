@@ -51,18 +51,15 @@ jobs:
       - name: Build and push Docker image
         working-directory: apps/web
         run: |
-          # Create Dockerfile for pre-built output (no indentation in heredoc)
-          cat > Dockerfile.deploy << 'EOF'
-FROM node:18-alpine
-WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
-COPY .next/standalone ./
-COPY .next/static ./.next/static
-COPY public ./public
-EXPOSE 3000
-CMD ["node", "server.js"]
-EOF
+          echo 'FROM node:18-alpine' > Dockerfile.deploy
+          echo 'WORKDIR /app' >> Dockerfile.deploy
+          echo 'ENV NODE_ENV=production' >> Dockerfile.deploy
+          echo 'ENV PORT=3000' >> Dockerfile.deploy
+          echo 'COPY .next/standalone ./' >> Dockerfile.deploy
+          echo 'COPY .next/static ./.next/static' >> Dockerfile.deploy
+          echo 'COPY public ./public' >> Dockerfile.deploy
+          echo 'EXPOSE 3000' >> Dockerfile.deploy
+          echo 'CMD ["node", "server.js"]' >> Dockerfile.deploy
           
           docker build -f Dockerfile.deploy -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}

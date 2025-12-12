@@ -4,6 +4,7 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FeatureDefinition, TenantFeature } from '@prisma/client';
@@ -63,10 +64,15 @@ export interface FeatureStatus {
 }
 
 @Injectable()
-export class FeaturesService {
+export class FeaturesService implements OnModuleInit {
   private readonly logger = new Logger(FeaturesService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    // Ensure features are seeded on startup
+    await this.ensureFeaturesSeeded();
+  }
 
   /**
    * Get all feature definitions
@@ -384,9 +390,124 @@ export class FeaturesService {
   }
 
   /**
+   * Ensure feature definitions exist in database (seed if needed)
+   */
+  async ensureFeaturesSeeded(): Promise<void> {
+    const existingFeatures = await this.prisma.featureDefinition.findMany();
+    
+    if (existingFeatures.length === 0) {
+      this.logger.warn('No feature definitions found, seeding features...');
+      await this.seedFeatures();
+    }
+  }
+
+  /**
+   * Seed feature definitions
+   */
+  private async seedFeatures(): Promise<void> {
+    const FEATURES = [
+      {
+        id: 'core',
+        name: 'Core Platform',
+        description: 'Candidates, Jobs, Resume Management - Essential platform features',
+        category: 'core',
+        type: 'standard',
+        defaultEnabled: true,
+        usageLimited: false,
+        defaultLimit: null,
+        sortOrder: 1,
+        isActive: true,
+      },
+      {
+        id: 'ai_screening',
+        name: 'AI Resume Screening',
+        description: 'AI-powered resume parsing, analysis, and scoring against job requirements',
+        category: 'ai',
+        type: 'freemium',
+        defaultEnabled: true,
+        usageLimited: true,
+        defaultLimit: 20,
+        sortOrder: 2,
+        isActive: true,
+      },
+      {
+        id: 'ai_interview',
+        name: 'AI Interview Evaluation',
+        description: 'AI-assisted candidate evaluation during interviews with structured feedback',
+        category: 'ai',
+        type: 'premium',
+        defaultEnabled: false,
+        usageLimited: true,
+        defaultLimit: 10,
+        sortOrder: 3,
+        isActive: true,
+      },
+      {
+        id: 'scheduler',
+        name: 'Interview Scheduler',
+        description: 'Calendar integration and automated interview scheduling with candidates',
+        category: 'scheduling',
+        type: 'addon',
+        defaultEnabled: false,
+        usageLimited: false,
+        defaultLimit: null,
+        sortOrder: 4,
+        isActive: true,
+      },
+      {
+        id: 'analytics',
+        name: 'Advanced Analytics',
+        description: 'Comprehensive hiring metrics, reports, and pipeline analytics',
+        category: 'analytics',
+        type: 'premium',
+        defaultEnabled: false,
+        usageLimited: false,
+        defaultLimit: null,
+        sortOrder: 5,
+        isActive: true,
+      },
+      {
+        id: 'integrations',
+        name: 'ATS/HRIS Integrations',
+        description: 'Connect to external systems like Workday, Greenhouse, Lever, etc.',
+        category: 'integrations',
+        type: 'enterprise',
+        defaultEnabled: false,
+        usageLimited: false,
+        defaultLimit: null,
+        sortOrder: 6,
+        isActive: true,
+      },
+    ];
+
+    for (const feature of FEATURES) {
+      await this.prisma.featureDefinition.upsert({
+        where: { id: feature.id },
+        update: {
+          name: feature.name,
+          description: feature.description,
+          category: feature.category,
+          type: feature.type,
+          defaultEnabled: feature.defaultEnabled,
+          usageLimited: feature.usageLimited,
+          defaultLimit: feature.defaultLimit,
+          sortOrder: feature.sortOrder,
+          isActive: feature.isActive,
+        },
+        create: feature,
+      });
+    }
+
+    this.logger.log(`Seeded ${FEATURES.length} feature definitions`);
+  }
+
+  /**
    * Initialize features for a new tenant based on subscription tier
    */
   async initializeTenantFeatures(tenantId: string, tier: string): Promise<TenantFeature[]> {
+    // Ensure features are seeded first
+    await this.ensureFeaturesSeeded();
+
     const tierConfig = TIER_FEATURES[tier] || TIER_FEATURES.free;
     const results: TenantFeature[] = [];
 

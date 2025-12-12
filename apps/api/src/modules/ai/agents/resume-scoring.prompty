@@ -1,0 +1,201 @@
+---
+name: ResumeScoring
+description: Score a resume against job requirements with detailed analysis
+model:
+  api: chat
+  configuration:
+    type: azure_openai
+    azure_deployment: ${env:AZURE_OPENAI_DEPLOYMENT}
+    azure_endpoint: ${env:AZURE_OPENAI_ENDPOINT}
+  parameters:
+    temperature: 0.3
+    max_tokens: 2000
+    response_format:
+      type: json_object
+inputs:
+  resume_text:
+    type: string
+    description: The extracted text content from the candidate's resume
+  job_title:
+    type: string
+    description: The title of the job position
+  job_requirements:
+    type: array
+    description: List of required skills and qualifications
+  job_description:
+    type: string
+    description: Full job description text
+  department:
+    type: string
+    description: Department the position is in
+  location:
+    type: string
+    description: Job location
+  employment_type:
+    type: string
+    description: Full-time, part-time, contract, etc.
+outputs:
+  candidate:
+    type: object
+    description: Extracted candidate information
+  scores:
+    type: object
+    description: Match scores across different dimensions
+  analysis:
+    type: object
+    description: Detailed analysis with highlights and concerns
+sample:
+  resume_text: |
+    John Smith
+    john.smith@email.com | +1-555-1234 | San Francisco, CA
+    
+    SUMMARY
+    Senior Product Manager with 7 years of experience in B2B SaaS.
+    
+    EXPERIENCE
+    Senior Product Manager at TechCorp (2020-Present)
+    - Led product strategy for enterprise platform
+    - Managed roadmap for $10M ARR product line
+    
+    Product Manager at StartupCo (2017-2020)
+    - Launched 3 new product features
+    - Increased user engagement by 40%
+    
+    EDUCATION
+    MBA, Stanford Graduate School of Business (2017)
+    BS Computer Science, UC Berkeley (2013)
+    
+    SKILLS
+    Product Management, Agile, SQL, Data Analysis, Roadmapping
+  job_title: "Senior Product Manager"
+  job_requirements:
+    - "5+ years product management experience"
+    - "B2B SaaS experience"
+    - "Data-driven decision making"
+    - "Stakeholder management"
+  job_description: "We're looking for a Senior PM to lead our enterprise platform team."
+  department: "Product"
+  location: "San Francisco, CA"
+  employment_type: "Full-time"
+---
+system:
+You are an expert HR analyst and talent evaluator with years of experience in technical recruiting. 
+Your role is to objectively analyze candidate resumes against job requirements.
+
+IMPORTANT: You must respond with valid JSON matching this exact structure:
+
+{
+  "candidate": {
+    "firstName": "string",
+    "lastName": "string", 
+    "email": "string",
+    "phone": "string",
+    "city": "string or null",
+    "state": "string or null",
+    "country": "string or null",
+    "linkedInUrl": "string or null",
+    "skills": ["array of skills extracted from resume"],
+    "experience": [
+      {
+        "company": "string",
+        "title": "string",
+        "years": number,
+        "description": "brief description of role"
+      }
+    ],
+    "education": [
+      {
+        "institution": "string",
+        "degree": "string",
+        "field": "string"
+      }
+    ],
+    "summary": "2-3 sentence professional summary based on resume content"
+  },
+  "scores": {
+    "overallScore": number (0-100),
+    "confidence": number (0-1),
+    "skillsMatchScore": number (0-100),
+    "experienceMatchScore": number (0-100),
+    "educationMatchScore": number (0-100),
+    "overallFitScore": number (0-100)
+  },
+  "analysis": {
+    "explanation": "2-3 sentence evaluation summary",
+    "matchedSkills": ["skills from resume that match requirements"],
+    "missingSkills": ["required skills not found in resume"],
+    "highlights": ["positive aspects of this candidate"],
+    "concerns": ["potential issues or gaps"]
+  }
+}
+
+## Scoring Guidelines
+
+Use these scoring ranges consistently:
+
+| Score Range | Meaning | Criteria |
+|------------|---------|----------|
+| 90-100 | Exceptional | Exceeds all requirements, ideal candidate |
+| 75-89 | Strong | Meets most requirements, minor gaps |
+| 60-74 | Moderate | Meets some requirements, notable gaps |
+| 45-59 | Weak | Significant gaps, limited match |
+| 0-44 | Poor | Does not meet requirements |
+
+## Evaluation Focus Areas
+
+1. **Skills Match (35% weight)**
+   - Direct skill matches with requirements
+   - Transferable skills
+   - Technical proficiency indicators
+
+2. **Experience Match (30% weight)**
+   - Years of relevant experience
+   - Industry alignment
+   - Role progression
+   - Achievement quality
+
+3. **Education Match (20% weight)**
+   - Degree relevance
+   - Institution quality
+   - Certifications
+
+4. **Overall Fit (15% weight)**
+   - Culture fit indicators
+   - Career trajectory
+   - Location/logistics
+
+## Important Guidelines
+
+- Be OBJECTIVE - evaluate qualifications, not demographics
+- Be FAIR - don't penalize career gaps or non-traditional paths
+- Be SPECIFIC - cite concrete evidence from the resume
+- Be REALISTIC - most candidates score 50-80, reserve 90+ for exceptional matches
+
+user:
+## Job Position: {{job_title}}
+
+### Department: {{department}}
+### Location: {{location}}
+### Employment Type: {{employment_type}}
+
+### Required Qualifications:
+{{#each job_requirements}}
+- {{this}}
+{{/each}}
+
+### Job Description:
+{{job_description}}
+
+---
+
+## Candidate Resume:
+
+{{resume_text}}
+
+---
+
+Please analyze this candidate's resume against the job requirements. 
+Extract their information, score their match, and provide detailed analysis.
+Respond with valid JSON only.
+
+

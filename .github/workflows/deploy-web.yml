@@ -1,0 +1,79 @@
+name: Deploy Frontend to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/web/**']
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  REGISTRY: hirefitacr.azurecr.io
+  IMAGE_NAME: hirefit-web
+  RESOURCE_GROUP: hirefit-ai-rg
+  CONTAINER_APP: hirefit-web-beta
+  API_URL: https://hirefit-api-beta.icyfield-0d6da074.eastus.azurecontainerapps.io/api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm install --legacy-peer-deps
+        
+      - name: Build Next.js app
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: ${{ env.API_URL }}
+          NEXT_PUBLIC_APP_NAME: "HireFit Beta"
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+        
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+          
+      - name: Build and push Docker image
+        working-directory: apps/web
+        run: |
+          # Create Dockerfile for pre-built output
+          cat > Dockerfile.deploy << 'EOF'
+          FROM node:18-alpine
+          WORKDIR /app
+          ENV NODE_ENV=production
+          ENV PORT=3000
+          RUN mkdir -p ./public
+          COPY .next/standalone ./
+          COPY .next/static ./.next/static
+          COPY public ./public 2>/dev/null || true
+          EXPOSE 3000
+          CMD ["node", "server.js"]
+          EOF
+          
+          docker build -f Dockerfile.deploy -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Deploy to Container Apps
+        run: |
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+

@@ -1,0 +1,559 @@
+// HireFit Platform Database Schema
+// Using Prisma with SQLite for development, SQL Server for production
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TENANT & USER MANAGEMENT
+// ============================================================================
+
+model Tenant {
+  id     String  @id @default(uuid())
+  name   String
+  slug   String  @unique
+  domain String? @unique
+
+  // Workspace Type: personal (individual) or company (team/enterprise)
+  type    String  @default("personal") // "personal" | "company"
+  ownerId String? // For personal workspaces, the single owner user
+
+  // Settings (JSON stored as string for SQLite compatibility)
+  settings String @default("{}")
+  features String @default("{}") // Feature flags/entitlements
+
+  // Subscription & Tier
+  subscriptionId     String?
+  subscriptionTier   String  @default("free") // free, pro, team, enterprise
+  subscriptionStatus String  @default("active")
+
+  // Usage Limits (based on tier)
+  maxJobs             Int @default(3) // Free tier: 3 active jobs
+  maxCandidates       Int @default(50) // Free tier: 50 candidates
+  maxAiScoresPerMonth Int @default(20) // Free tier: 20 AI scores/month
+  maxTeamMembers      Int @default(1) // Free tier: 1 (owner only)
+
+  // Usage Tracking
+  aiScoresUsedThisMonth Int      @default(0)
+  usageResetDate        DateTime @default(now()) // When monthly usage resets
+
+  // Branding
+  logoUrl      String?
+  primaryColor String?
+
+  // Status
+  isActive Boolean @default(true)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users          User[]
+  jobs           Job[]
+  candidates     Candidate[]
+  invitations    TenantInvitation[]
+  auditLogs      AuditLog[]
+  resumes        Resume[]
+  tenantFeatures TenantFeature[]
+
+  @@map("tenants")
+}
+
+model User {
+  id       String @id @default(uuid())
+  tenantId String
+
+  // Identity
+  email        String
+  passwordHash String? // For local auth
+  externalId   String? // Azure AD Object ID
+
+  // Email Verification
+  emailVerified       Boolean   @default(false)
+  emailVerifiedAt     DateTime?
+  emailVerificationToken String?
+  emailVerificationExpires DateTime?
+
+  // Profile
+  firstName String
+  lastName  String
+  avatarUrl String?
+  phone     String?
+  timezone  String  @default("UTC")
+
+  // Role & Permissions
+  role        String @default("viewer")
+  permissions String @default("[]")
+
+  // Onboarding State
+  onboardingStep     String  @default("welcome") // welcome, profile, first_job, first_candidate, complete
+  onboardingComplete Boolean @default(false)
+  onboardingDismissed Boolean @default(false)
+
+  // Feature Discovery (JSON: which features have been discovered/dismissed)
+  featureDiscovery String @default("{}")
+
+  // Status
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Created entities
+  createdJobs       Job[]        @relation("JobCreator")
+  createdCandidates Candidate[]  @relation("CandidateCreator")
+  evaluations       Evaluation[]
+  interviewsAsLead  Interview[]  @relation("InterviewLead")
+  auditLogs         AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@index([externalId])
+  @@map("users")
+}
+
+model TenantInvitation {
+  id       String @id @default(uuid())
+  tenantId String
+
+  email String
+  role  String @default("viewer")
+
+  // Invitation details
+  invitedById   String? // User who sent the invitation
+  personalMessage String? // Optional personal message from inviter
+
+  token     String   @unique
+  expiresAt DateTime
+
+  // Status tracking
+  status     String    @default("pending") // pending, accepted, declined, expired, revoked
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  revokedAt  DateTime?
+
+  // For accepted invitations, link to created user
+  acceptedUserId String?
+
+  // Resend tracking
+  lastResentAt DateTime?
+  resendCount  Int       @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([status])
+  @@map("tenant_invitations")
+}
+
+// ============================================================================
+// JOBS & HIRING
+// ============================================================================
+
+model Job {
+  id          String @id @default(uuid())
+  tenantId    String
+  createdById String
+
+  // Basic Info
+  title        String
+  description  String
+  department   String?
+  location     String?
+  locationType String  @default("onsite") // onsite, remote, hybrid
+
+  // Requirements (JSON stored as string)
+  requirements   String @default("{}") // Skills, experience, education
+  salaryMin      Float?
+  salaryMax      Float?
+  salaryCurrency String @default("USD")
+  employmentType String @default("full_time") // full_time, part_time, contract
+
+  // AI Scoring (JSON stored as string)
+  scoringRubric String @default("{}")
+
+  // Pipeline (JSON stored as string)
+  pipelineStages String @default("[]")
+
+  // Status
+  status      String    @default("draft") // draft, open, paused, closed, filled
+  publishedAt DateTime?
+  closedAt    DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("JobCreator", fields: [createdById], references: [id])
+  applications Application[]
+  interviews   Interview[]
+  resumes      Resume[] // Resumes uploaded for this job (before candidate assignment)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([tenantId, status])
+  @@map("jobs")
+}
+
+// ============================================================================
+// CANDIDATES & APPLICATIONS
+// ============================================================================
+
+model Candidate {
+  id          String @id @default(uuid())
+  tenantId    String
+  createdById String
+
+  // Contact Info
+  email     String
+  firstName String
+  lastName  String
+  phone     String?
+
+  // Location
+  city    String?
+  state   String?
+  country String?
+
+  // Professional
+  linkedInUrl String?
+  websiteUrl  String?
+
+  // Source
+  source        String? // direct, referral, linkedin, indeed, etc.
+  sourceDetails String?
+
+  // Tags (JSON stored as string)
+  tags String @default("[]")
+
+  // Status
+  isActive Boolean @default(true)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("CandidateCreator", fields: [createdById], references: [id])
+  resumes      Resume[]
+  applications Application[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@map("candidates")
+}
+
+model Resume {
+  id           String  @id @default(uuid())
+  candidateId  String?
+  jobId        String? // For job-based uploads before candidate is created
+  tenantId     String // Track tenant for unassigned resumes
+  uploadedById String? // User who uploaded
+
+  // File Info
+  originalFileName String
+  storagePath      String
+  fileType         String
+  fileSizeBytes    Int
+
+  // Processing
+  processingStatus String  @default("pending") // pending, processing, completed, failed
+  processingError  String?
+
+  // Parsed Data (JSON stored as string)
+  parsedData      String?
+  parseConfidence Float?
+
+  // Raw text for search
+  rawText String?
+
+  // Is Primary
+  isPrimary Boolean @default(false)
+
+  // Timestamps
+  uploadedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  // Relations
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate Candidate?    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  scores    ResumeScore[]
+
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([tenantId])
+  @@index([processingStatus])
+  @@map("resumes")
+}
+
+model ResumeScore {
+  id       String @id @default(uuid())
+  resumeId String
+  jobId    String
+
+  // Scores
+  overallScore Float
+  confidence   Float
+
+  skillsMatchScore     Float?
+  experienceMatchScore Float?
+  educationMatchScore  Float?
+  certificationsScore  Float?
+  locationScore        Float?
+  overallFitScore      Float?
+
+  // Explanation (JSON stored as string)
+  explanation String
+
+  // Model Info
+  modelVersion  String
+  rubricVersion String
+
+  // Timestamps
+  scoredAt DateTime @default(now())
+
+  // Relations
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@unique([resumeId, jobId])
+  @@index([jobId])
+  @@map("resume_scores")
+}
+
+model Application {
+  id          String @id @default(uuid())
+  candidateId String
+  jobId       String
+
+  // Status
+  status String  @default("new") // new, screening, interviewing, offer, hired, rejected, withdrawn
+  stage  String? // Custom pipeline stage
+
+  // Decision
+  decision       String? // advance, hire, reject, hold
+  decisionReason String?
+  decisionBy     String?
+  decisionAt     DateTime?
+
+  // Notes
+  notes String?
+
+  // Timestamps
+  appliedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  candidate  Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job        Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  interviews Interview[]
+
+  @@unique([candidateId, jobId])
+  @@index([jobId])
+  @@index([status])
+  @@map("applications")
+}
+
+// ============================================================================
+// INTERVIEWS & EVALUATIONS
+// ============================================================================
+
+model Interview {
+  id            String @id @default(uuid())
+  applicationId String
+  jobId         String
+  leaderId      String
+
+  // Schedule
+  type        String // phone_screen, technical, behavioral, etc.
+  status      String    @default("scheduled") // scheduled, completed, cancelled, no_show
+  scheduledAt DateTime?
+  duration    Int       @default(60) // minutes
+
+  // Location
+  location    String?
+  meetingLink String?
+
+  // Guide
+  interviewGuideId String?
+
+  // Recording
+  recordingConsent Boolean @default(false)
+  recordingPath    String?
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  // Relations
+  application Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  job         Job          @relation(fields: [jobId], references: [id])
+  leader      User         @relation("InterviewLead", fields: [leaderId], references: [id])
+  evaluations Evaluation[]
+
+  @@index([applicationId])
+  @@index([jobId])
+  @@index([scheduledAt])
+  @@map("interviews")
+}
+
+model Evaluation {
+  id          String @id @default(uuid())
+  interviewId String
+  evaluatorId String
+
+  // Scores
+  overallScore   Float?
+  recommendation String? // strong_hire, hire, no_hire, strong_no_hire, undecided
+
+  // Competency Scores (JSON stored as string)
+  competencyScores String @default("[]")
+
+  // Feedback (JSON stored as string)
+  strengths String  @default("[]")
+  concerns  String  @default("[]")
+  notes     String?
+  redFlags  String  @default("[]")
+
+  // Status
+  status      String    @default("draft") // draft, submitted, locked
+  submittedAt DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  evaluator User      @relation(fields: [evaluatorId], references: [id])
+
+  @@unique([interviewId, evaluatorId])
+  @@index([evaluatorId])
+  @@map("evaluations")
+}
+
+// ============================================================================
+// AUDIT & LOGGING
+// ============================================================================
+
+model AuditLog {
+  id       String  @id @default(uuid())
+  tenantId String
+  userId   String?
+
+  // Action
+  action     String // CREATE, READ, UPDATE, DELETE, LOGIN, etc.
+  resource   String // candidates, jobs, evaluations, etc.
+  resourceId String?
+
+  // Context
+  ipAddress String?
+  userAgent String?
+  requestId String?
+
+  // Changes (JSON stored as string)
+  oldValue String?
+  newValue String?
+  metadata String?
+
+  // Result
+  status       String  @default("success") // success, failure
+  errorMessage String?
+
+  // Timestamps
+  timestamp DateTime @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([timestamp])
+  @@index([resource])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// FEATURE MANAGEMENT (Modular Feature System)
+// ============================================================================
+
+model FeatureDefinition {
+  id          String @id // e.g., "core", "ai_screening"
+  name        String // Human-readable name
+  description String // Feature description
+  category    String // core, ai, scheduling, analytics, integrations
+  type        String // standard, freemium, premium, addon, enterprise
+
+  // Default behavior
+  defaultEnabled Boolean @default(false) // Enabled by default for new tenants?
+  usageLimited   Boolean @default(false) // Does this feature have usage limits?
+  defaultLimit   Int? // Default monthly limit (if usageLimited)
+
+  // Metadata
+  sortOrder Int     @default(0) // Display order
+  isActive  Boolean @default(true) // Feature available in the system?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenantFeatures TenantFeature[]
+
+  @@index([category])
+  @@index([type])
+  @@map("feature_definitions")
+}
+
+model TenantFeature {
+  id        String @id @default(uuid())
+  tenantId  String
+  featureId String
+
+  // Feature state for this tenant
+  enabled Boolean @default(false) // Is feature enabled for this tenant?
+
+  // Usage limits (override defaults)
+  usageLimit     Int? // Custom limit (null = use default)
+  usageCount     Int      @default(0) // Current period usage count
+  usageResetDate DateTime @default(now()) // When usage count resets
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  feature FeatureDefinition @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, featureId])
+  @@index([tenantId])
+  @@index([featureId])
+  @@map("tenant_features")
+}

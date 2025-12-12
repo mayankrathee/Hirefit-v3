@@ -11,7 +11,7 @@ env:
   IMAGE_NAME: hirefit-web
   RESOURCE_GROUP: hirefit-ai-rg
   CONTAINER_APP: hirefit-web-beta
-  API_URL: https://hirefit-api-beta.icyfield-0d6da074.eastus.azurecontainerapps.io/api
+  API_URL: https://hirefit-api-beta.icyfield-0d6da074.eastus.azurecontainerapps.io
 
 jobs:
   build-and-deploy:

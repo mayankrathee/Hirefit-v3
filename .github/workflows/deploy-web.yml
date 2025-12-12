@@ -44,22 +44,25 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
           
+      - name: Prepare public folder
+        working-directory: apps/web
+        run: mkdir -p public
+        
       - name: Build and push Docker image
         working-directory: apps/web
         run: |
-          # Create Dockerfile for pre-built output
+          # Create Dockerfile for pre-built output (no indentation in heredoc)
           cat > Dockerfile.deploy << 'EOF'
-          FROM node:18-alpine
-          WORKDIR /app
-          ENV NODE_ENV=production
-          ENV PORT=3000
-          RUN mkdir -p ./public
-          COPY .next/standalone ./
-          COPY .next/static ./.next/static
-          COPY public ./public 2>/dev/null || true
-          EXPOSE 3000
-          CMD ["node", "server.js"]
-          EOF
+FROM node:18-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+COPY .next/standalone ./
+COPY .next/static ./.next/static
+COPY public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]
+EOF
           
           docker build -f Dockerfile.deploy -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}

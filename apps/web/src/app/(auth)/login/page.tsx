@@ -28,6 +28,9 @@ export default function LoginPage() {
     }
   }, [searchParams]);
 
+  // Note: handleDemoLogin is defined below, but we need to reference it
+  // This will be handled by the useCallback hook
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);

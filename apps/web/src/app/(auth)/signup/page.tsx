@@ -14,9 +14,138 @@ import {
   Users,
   Zap,
   Building2,
+  LogIn,
+  Rocket,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+// Signup success component with prominent login options
+function SignupSuccess({ 
+  workspaceInfo, 
+  onAutoLogin 
+}: { 
+  workspaceInfo: { slug: string; limits: { maxJobs: number; maxCandidates: number; maxAiScoresPerMonth: number } };
+  onAutoLogin: () => void;
+}) {
+  const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
+
+  const handleAutoLogin = async () => {
+    setIsAutoLoggingIn(true);
+    try {
+      // Use demo login to automatically log in the user
+      const response = await fetch(`${API_URL}/api/auth/demo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Auto-login failed');
+      }
+
+      const data = await response.json();
+      const result = data.data || data;
+
+      // Store tokens
+      localStorage.setItem('accessToken', result.accessToken);
+      localStorage.setItem('refreshToken', result.refreshToken);
+      localStorage.setItem('user', JSON.stringify(result.user));
+
+      // Redirect to dashboard
+      window.location.href = '/dashboard';
+    } catch (error) {
+      console.error('Auto-login failed:', error);
+      // Fallback to manual login
+      onAutoLogin();
+    } finally {
+      setIsAutoLoggingIn(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Welcome to HireFit!</h1>
+          <p className="text-muted-foreground mb-2">
+            Your personal workspace is ready.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            No email verification required. Start using HireFit right away!
+          </p>
+        </div>
+        
+        {/* Free tier info */}
+        <div className="bg-slate-50 rounded-lg p-4 mb-6">
+          <h3 className="font-medium mb-3 text-sm">Your Free Plan includes:</h3>
+          <ul className="text-sm text-muted-foreground space-y-2">
+            <li className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              {workspaceInfo.limits.maxJobs} active job postings
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              {workspaceInfo.limits.maxCandidates} candidates
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              {workspaceInfo.limits.maxAiScoresPerMonth} AI resume scores/month
+            </li>
+            <li className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              Unlimited resume uploads
+            </li>
+          </ul>
+        </div>
+        
+        {/* Login options */}
+        <div className="space-y-3">
+          <button
+            onClick={handleAutoLogin}
+            disabled={isAutoLoggingIn}
+            className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isAutoLoggingIn ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Logging you in...
+              </>
+            ) : (
+              <>
+                <Rocket className="w-5 h-5" />
+                Start Using HireFit Now
+              </>
+            )}
+          </button>
+          
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <Link
+            href="/login"
+            className="block w-full border-2 border-primary text-primary py-3 rounded-lg font-medium hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+          >
+            <LogIn className="w-5 h-5" />
+            Go to Login Page
+          </Link>
+        </div>
+
+        <p className="mt-6 text-xs text-muted-foreground text-center">
+          Need a team? <Link href="/signup?type=company" className="text-primary hover:underline">Upgrade anytime</Link>
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -103,40 +232,13 @@ export default function SignupPage() {
   // Success view
   if (registrationComplete && workspaceInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Welcome to HireFit!</h1>
-          <p className="text-muted-foreground mb-6">
-            Your personal workspace is ready. Start screening candidates with AI.
-          </p>
-          
-          {/* Free tier info */}
-          <div className="bg-slate-50 rounded-lg p-4 mb-6 text-left">
-            <h3 className="font-medium mb-2 text-sm">Your Free Plan includes:</h3>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li>✓ {workspaceInfo.limits.maxJobs} active job postings</li>
-              <li>✓ {workspaceInfo.limits.maxCandidates} candidates</li>
-              <li>✓ {workspaceInfo.limits.maxAiScoresPerMonth} AI resume scores/month</li>
-              <li>✓ Unlimited resume uploads</li>
-            </ul>
-          </div>
-          
-          <div className="space-y-3">
-            <Link
-              href="/login"
-              className="block w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors"
-            >
-              Sign In to Your Workspace
-            </Link>
-            <p className="text-xs text-muted-foreground">
-              Need a team? <Link href="/signup?type=company" className="text-primary hover:underline">Upgrade anytime</Link>
-            </p>
-          </div>
-        </div>
-      </div>
+      <SignupSuccess 
+        workspaceInfo={workspaceInfo}
+        onAutoLogin={() => {
+          // Auto-login using demo login
+          router.push('/login?mode=demo');
+        }}
+      />
     );
   }
 

@@ -51,15 +51,24 @@ jobs:
       - name: Build and push Docker image
         working-directory: apps/web
         run: |
+          # Check standalone structure
+          echo "Standalone directory structure:"
+          ls -la .next/standalone/ || true
+          ls -la .next/standalone/apps/web/ || true
+          
+          # Create Dockerfile for pre-built output (monorepo structure)
           echo 'FROM node:18-alpine' > Dockerfile.deploy
           echo 'WORKDIR /app' >> Dockerfile.deploy
           echo 'ENV NODE_ENV=production' >> Dockerfile.deploy
           echo 'ENV PORT=3000' >> Dockerfile.deploy
-          echo 'COPY .next/standalone ./' >> Dockerfile.deploy
+          echo 'COPY .next/standalone/apps/web/ ./' >> Dockerfile.deploy
+          echo 'COPY .next/standalone/node_modules ./node_modules' >> Dockerfile.deploy
           echo 'COPY .next/static ./.next/static' >> Dockerfile.deploy
           echo 'COPY public ./public' >> Dockerfile.deploy
           echo 'EXPOSE 3000' >> Dockerfile.deploy
           echo 'CMD ["node", "server.js"]' >> Dockerfile.deploy
+          
+          cat Dockerfile.deploy
           
           docker build -f Dockerfile.deploy -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}

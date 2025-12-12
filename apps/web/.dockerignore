@@ -1,8 +1,7 @@
 # Dependencies - will be installed fresh in container
 node_modules
 
-# Build outputs - will be created in container
-.next
+# Build outputs (NOT .next - we need it for the pre-built image)
 out
 dist
 build

@@ -118,6 +118,16 @@ export class OnboardingController {
     return this.onboardingService.verifyEmail(token);
   }
 
+  @Post('verify-email/resend-by-email')
+  @Public()
+  @SkipTenantCheck()
+  @ApiOperation({ summary: 'Resend verification email by email address (for unverified users)' })
+  @ApiResponse({ status: 200, description: 'Verification email resent if user exists and is unverified' })
+  @ApiResponse({ status: 400, description: 'User not found or email already verified' })
+  async resendVerificationByEmail(@Body() body: { email: string }) {
+    return this.onboardingService.resendVerificationEmailByAddress(body.email);
+  }
+
   @Post('test-send-email')
   @Public()
   @SkipTenantCheck()

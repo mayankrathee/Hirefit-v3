@@ -12,6 +12,7 @@ import { UsersService } from '../users/users.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { EmailService } from '../email/email.service';
 import { FeaturesService } from '../features/features.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from '../../common/decorators/user.decorator';
 
 export interface TokenResponse {
@@ -60,6 +61,7 @@ export class AuthService {
     private tenantsService: TenantsService,
     private emailService: EmailService,
     private featuresService: FeaturesService,
+    private prisma: PrismaService,
   ) {}
 
   /**
@@ -219,16 +221,27 @@ export class AuthService {
         suffix++;
       }
 
-      // Create personal workspace
-      tenant = await this.tenantsService.create({
-        name: `${profile.given_name || 'User'}'s Workspace`,
-        slug,
-        type: 'personal',
-        subscriptionTier: 'free',
-        maxJobs: 3,
-        maxCandidates: 50,
-        maxAiScoresPerMonth: 20,
-        maxTeamMembers: 1,
+      // Create personal workspace using Prisma directly (to set all required fields)
+      tenant = await this.prisma.tenant.create({
+        data: {
+          name: `${profile.given_name || 'User'}'s Workspace`,
+          slug,
+          type: 'personal',
+          subscriptionTier: 'free',
+          maxJobs: 3,
+          maxCandidates: 50,
+          maxAiScoresPerMonth: 20,
+          maxTeamMembers: 1,
+          settings: JSON.stringify({
+            onboardingCompleted: false,
+          }),
+          features: JSON.stringify({
+            aiScoring: true,
+            advancedAnalytics: false,
+            customPipelines: true,
+            integrations: false,
+          }),
+        },
       });
 
       // Create user
@@ -242,28 +255,35 @@ export class AuthService {
       });
 
       // Mark email as verified (Google verifies emails)
-      await this.usersService.update(user.id, {
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-      });
+      if (user) {
+        await this.usersService.update(user.id, {
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+        });
 
-      // Initialize features for the workspace
-      await this.featuresService.initializeTenantFeatures(tenant.id, 'free');
+        // Initialize features for the workspace
+        await this.featuresService.initializeTenantFeatures(tenant.id, 'free');
 
-      this.logger.log(`Created new user from Google: ${user.email}`);
+        this.logger.log(`Created new user from Google: ${user.email}`);
+      }
     } else {
       // Update external ID if not set
-      if (!user.externalId) {
+      if (user && !user.externalId) {
         await this.usersService.update(user.id, { externalId: `google:${profile.sub}` });
       }
 
       // Mark email as verified for OAuth users (Google verifies emails)
-      if (!user.emailVerified) {
+      if (user && !user.emailVerified) {
         await this.usersService.update(user.id, {
           emailVerified: true,
           emailVerifiedAt: new Date(),
         });
       }
+    }
+
+    // Ensure user is not null (TypeScript check)
+    if (!user) {
+      throw new UnauthorizedException('Failed to create or find user');
     }
 
     // Update last login

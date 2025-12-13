@@ -5,8 +5,15 @@
 **URL**: `[Your Platform URL]/login`
 
 **Options**:
-- Demo Login (instant test account)
-- Sign up with email
+- Email/Password (requires signup + email verification)
+- Sign in with Google (OAuth)
+- Sign in with Microsoft (OAuth, if configured)
+
+**New User?**
+1. Click "Sign up"
+2. Enter name, email, password
+3. Verify email (check inbox)
+4. Login with credentials
 
 ---
 

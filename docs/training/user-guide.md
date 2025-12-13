@@ -12,8 +12,9 @@ Your AI-powered talent acquisition platform that streamlines resume screening an
 
 **Step 1: Sign Up / Login**
 1. Go to the HireFit login page
-2. Click **"Demo Login"** (for testing) or sign up with your email
-3. You'll be taken to your personal dashboard
+2. **New users**: Click "Sign up" → Enter name, email, password → Verify email → Login
+3. **Existing users**: Enter email and password, or use "Sign in with Google/Microsoft"
+4. You'll be taken to your personal dashboard
 
 **Step 2: Explore the Dashboard**
 - **Stats Cards**: See your jobs, candidates, and usage at a glance

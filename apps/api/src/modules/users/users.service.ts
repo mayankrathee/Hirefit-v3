@@ -13,7 +13,7 @@ export class UsersService {
 
   constructor(private prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto & { tenantId: string }) {
+  async create(createUserDto: CreateUserDto & { tenantId: string; passwordHash?: string }) {
     // Check if email is unique within tenant
     const existingUser = await this.prisma.user.findUnique({
       where: {
@@ -37,6 +37,7 @@ export class UsersService {
         phone: createUserDto.phone,
         role: createUserDto.role || 'viewer',
         externalId: createUserDto.externalId,
+        passwordHash: createUserDto.passwordHash,
         permissions: JSON.stringify(createUserDto.permissions || []),
       },
     });
@@ -92,13 +93,21 @@ export class UsersService {
     });
   }
 
+  async findByEmailGlobal(email: string) {
+    return this.prisma.user.findFirst({
+      where: {
+        email: email.toLowerCase(),
+      },
+    });
+  }
+
   async findByExternalId(externalId: string) {
     return this.prisma.user.findFirst({
       where: { externalId },
     });
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
+  async update(id: string, updateUserDto: UpdateUserDto & { passwordHash?: string; emailVerified?: boolean; emailVerifiedAt?: Date; emailVerificationToken?: string; emailVerificationExpires?: Date }) {
     await this.findById(id);
 
     const user = await this.prisma.user.update({
@@ -112,6 +121,11 @@ export class UsersService {
         timezone: updateUserDto.timezone,
         permissions: updateUserDto.permissions ? JSON.stringify(updateUserDto.permissions) : undefined,
         externalId: updateUserDto.externalId,
+        passwordHash: updateUserDto.passwordHash,
+        emailVerified: updateUserDto.emailVerified,
+        emailVerifiedAt: updateUserDto.emailVerifiedAt,
+        emailVerificationToken: updateUserDto.emailVerificationToken,
+        emailVerificationExpires: updateUserDto.emailVerificationExpires,
       },
     });
 

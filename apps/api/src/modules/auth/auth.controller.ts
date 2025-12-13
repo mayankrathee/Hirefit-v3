@@ -18,7 +18,7 @@ import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/user.decorator';
 import { SkipTenantCheck } from '../../common/guards/tenant.guard';
-import { RefreshTokenDto, AzureAdCallbackDto } from './dto/auth.dto';
+import { RefreshTokenDto, AzureAdCallbackDto, LoginDto } from './dto/auth.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -44,6 +44,16 @@ export class AuthController {
       body.profile,
       body.tenantSlug,
     );
+  }
+
+  @Post('login')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Email/password login' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials or email not verified' })
+  async login(@Body() body: LoginDto) {
+    return this.authService.loginWithPassword(body.email, body.password, body.tenantSlug);
   }
 
   @Post('refresh')
@@ -78,6 +88,114 @@ export class AuthController {
     };
   }
 
+  @Get('google/login')
+  @Public()
+  @ApiOperation({ summary: 'Initiate Google OAuth login' })
+  @ApiQuery({ name: 'tenant', required: false, description: 'Tenant slug for SSO' })
+  @ApiQuery({ name: 'redirect_uri', required: false, description: 'Frontend redirect URI after auth' })
+  @ApiResponse({ status: 302, description: 'Redirect to Google' })
+  googleLogin(
+    @Query('tenant') tenantSlug: string,
+    @Query('redirect_uri') frontendRedirect: string,
+    @Res() res: Response,
+  ) {
+    const clientId = this.configService.get<string>('google.clientId') || process.env.GOOGLE_CLIENT_ID;
+    const redirectUri = this.configService.get<string>('google.redirectUri') || process.env.GOOGLE_REDIRECT_URI;
+    
+    if (!clientId) {
+      this.logger.warn('Google OAuth not configured');
+      const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+      res.redirect(`${webUrl}/login?error=${encodeURIComponent('Google OAuth not configured')}`);
+      return;
+    }
+
+    // Store state for CSRF protection and to pass tenant info
+    const state = Buffer.from(JSON.stringify({
+      tenantSlug,
+      frontendRedirect: frontendRedirect || `${this.configService.get<string>('webUrl') || 'http://localhost:3002'}/auth/callback`,
+      timestamp: Date.now(),
+    })).toString('base64');
+
+    const scope = encodeURIComponent('openid profile email');
+    const encodedRedirectUri = encodeURIComponent(redirectUri || '');
+    
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${clientId}&` +
+      `response_type=code&` +
+      `redirect_uri=${encodedRedirectUri}&` +
+      `scope=${scope}&` +
+      `state=${encodeURIComponent(state)}`;
+
+    this.logger.log(`Redirecting to Google for authentication`);
+    res.redirect(authUrl);
+  }
+
+  @Get('google/callback')
+  @Public()
+  @ApiOperation({ summary: 'Handle Google OAuth callback' })
+  @ApiResponse({ status: 302, description: 'Redirect to frontend with tokens' })
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') error: string,
+    @Query('error_description') errorDescription: string,
+    @Res() res: Response,
+  ) {
+    const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+    
+    // Handle errors from Google
+    if (error) {
+      this.logger.error(`Google OAuth error: ${error} - ${errorDescription}`);
+      res.redirect(`${webUrl}/login?error=${encodeURIComponent(errorDescription || error)}`);
+      return;
+    }
+
+    if (!code) {
+      this.logger.error('No authorization code received');
+      res.redirect(`${webUrl}/login?error=no_code`);
+      return;
+    }
+
+    try {
+      // Decode state
+      let parsedState = { tenantSlug: '', frontendRedirect: `${webUrl}/auth/callback` };
+      if (state) {
+        try {
+          parsedState = JSON.parse(Buffer.from(state, 'base64').toString('utf8'));
+        } catch {
+          this.logger.warn('Failed to parse state parameter');
+        }
+      }
+
+      // Exchange code for tokens
+      const tokens = await this.exchangeGoogleCodeForTokens(code);
+      
+      // Decode ID token to get user info
+      const idTokenPayload = this.decodeJwt(tokens.id_token);
+      
+      // Handle Google callback in auth service
+      const result = await this.authService.handleGoogleCallback({
+        sub: idTokenPayload.sub,
+        email: idTokenPayload.email,
+        name: idTokenPayload.name,
+        given_name: idTokenPayload.given_name,
+        family_name: idTokenPayload.family_name,
+        picture: idTokenPayload.picture,
+      }, parsedState.tenantSlug);
+
+      // Redirect to frontend with tokens
+      const redirectUrl = new URL(parsedState.frontendRedirect);
+      redirectUrl.searchParams.set('accessToken', result.accessToken);
+      redirectUrl.searchParams.set('refreshToken', result.refreshToken);
+      redirectUrl.searchParams.set('user', Buffer.from(JSON.stringify(result.user)).toString('base64'));
+
+      res.redirect(redirectUrl.toString());
+    } catch (err: any) {
+      this.logger.error(`Google callback error: ${err.message}`);
+      res.redirect(`${webUrl}/login?error=${encodeURIComponent(err.message)}`);
+    }
+  }
+
   @Get('azure-ad/login')
   @Public()
   @ApiOperation({ summary: 'Initiate Azure AD login' })
@@ -94,9 +212,9 @@ export class AuthController {
     const redirectUri = this.configService.get<string>('azure.ad.redirectUri') || process.env.AZURE_AD_REDIRECT_URI;
     
     if (!clientId) {
-      this.logger.warn('Azure AD not configured, redirecting to demo login');
+      this.logger.warn('Azure AD not configured');
       const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
-      res.redirect(`${webUrl}/login?mode=demo`);
+      res.redirect(`${webUrl}/login?error=${encodeURIComponent('Azure AD not configured')}`);
       return;
     }
 
@@ -224,6 +342,38 @@ export class AuthController {
   }
 
   /**
+   * Exchange Google authorization code for tokens
+   */
+  private async exchangeGoogleCodeForTokens(code: string): Promise<any> {
+    const clientId = this.configService.get<string>('google.clientId') || process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = this.configService.get<string>('google.clientSecret') || process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = this.configService.get<string>('google.redirectUri') || process.env.GOOGLE_REDIRECT_URI;
+
+    const tokenUrl = 'https://oauth2.googleapis.com/token';
+    
+    const body = new URLSearchParams({
+      client_id: clientId!,
+      client_secret: clientSecret!,
+      code,
+      redirect_uri: redirectUri!,
+      grant_type: 'authorization_code',
+    });
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error_description || 'Token exchange failed');
+    }
+
+    return response.json();
+  }
+
+  /**
    * Decode JWT without verification (for ID token inspection)
    */
   private decodeJwt(token: string): any {
@@ -235,14 +385,5 @@ export class AuthController {
     return JSON.parse(payload);
   }
 
-  @Post('demo')
-  @Public()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Demo login (development only)' })
-  @ApiResponse({ status: 200, description: 'Demo login successful' })
-  @ApiResponse({ status: 401, description: 'Demo login not available in production' })
-  async demoLogin() {
-    return this.authService.demoLogin();
-  }
 }
 

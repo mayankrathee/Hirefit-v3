@@ -16,6 +16,141 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.0] - 2025-01-XX 🔐 Authentication Security Update
+
+### Added - Enhanced Authentication System
+
+#### Email/Password Authentication
+- **Password-based signup** with bcrypt hashing (10 rounds)
+- **Email verification required** before login
+- **Verification email** sent automatically on signup
+- **Verification token** expires in 24 hours
+- **Password validation** (minimum 8 characters)
+- **Login endpoint** (`POST /api/auth/login`) with email verification check
+
+#### Google OAuth Integration
+- **Google OAuth login** (`GET /api/auth/google/login`)
+- **Google OAuth callback** (`GET /api/auth/google/callback`)
+- **Auto-account creation** for new Google users
+- **Auto-email verification** (Google verifies emails)
+- **Account linking** for existing users
+
+#### Enhanced Microsoft OAuth
+- **Auto-email verification** for Microsoft OAuth users
+- **Improved error handling** for OAuth failures
+
+#### Security Improvements
+- **Email verification required** for email/password accounts
+- **OAuth accounts auto-verified** (Google/Microsoft verify emails)
+- **Password hashing** with bcrypt
+- **Token-based email verification** with expiration
+- **Welcome email** sent after verification
+
+### Changed - Authentication Flow
+
+#### Removed
+- **Demo login feature** removed (was development-only)
+- **Auto-login after signup** removed (requires email verification)
+
+#### Updated
+- **Signup flow** now includes password field
+- **Signup success page** shows email verification instructions
+- **Login page** includes email/password form
+- **Login page** shows Google and Microsoft OAuth buttons
+- **Auth provider** updated with new login methods
+
+### API Endpoints
+
+#### New Endpoints
+```
+POST /api/auth/login              # Email/password login
+GET  /api/auth/google/login       # Initiate Google OAuth
+GET  /api/auth/google/callback    # Google OAuth callback
+```
+
+#### Updated Endpoints
+```
+POST /api/tenants/signup          # Now requires password field
+GET  /api/auth/azure-ad/callback  # Now auto-verifies email
+```
+
+### Database Schema Changes
+
+#### User Model
+- `passwordHash` field already exists (now used)
+- `emailVerified` field already exists (now enforced)
+- `emailVerificationToken` field already exists (now used)
+- `emailVerificationExpires` field already exists (now used)
+
+### Frontend Changes
+
+#### Login Page (`apps/web/src/app/(auth)/login/page.tsx`)
+- Added email/password login form
+- Added Google OAuth button
+- Updated Microsoft OAuth button
+- Removed demo login button
+- Added password visibility toggle
+
+#### Signup Page (`apps/web/src/app/(auth)/signup/page.tsx`)
+- Added password field with validation
+- Added password visibility toggle
+- Updated success page with email verification message
+- Removed auto-login functionality
+
+#### Auth Provider (`apps/web/src/lib/auth/auth-provider.tsx`)
+- Updated `login` method to accept email and password
+- Added `loginWithGoogle` method
+- Added `loginWithMicrosoft` method
+- Removed `demoLogin` method
+
+### Documentation Updates
+
+#### Updated Files
+- `docs/user-guides/LOGIN-PROCESS.md` - Complete rewrite with new authentication methods
+- `docs/user-guides/SIGNUP-FIX.md` - Updated with email verification flow
+- `docs/training/beta-tester-guide.md` - Updated login instructions
+- `docs/training/user-guide.md` - Updated login instructions
+- `docs/training/quick-reference-card.md` - Updated login options
+- `docs/setup/env-configuration.md` - Added Google OAuth environment variables
+
+### Environment Variables
+
+#### New Variables
+```env
+# Google OAuth (Optional)
+GOOGLE_CLIENT_ID=<your-google-client-id>
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+GOOGLE_REDIRECT_URI=https://your-domain.com/api/auth/google/callback
+```
+
+#### Updated Variables
+```env
+# JWT Configuration
+JWT_EXPIRES_IN=1h              # Access token (was 7d)
+JWT_REFRESH_EXPIRES_IN=7d      # Refresh token (new)
+```
+
+### Migration Guide
+
+#### For Existing Users
+- Existing accounts may need to verify email on next login
+- Users can use OAuth (Google/Microsoft) to skip verification
+- Password reset feature coming soon
+
+#### For Administrators
+- Configure Google OAuth credentials (optional)
+- Ensure email service is properly configured
+- Monitor email delivery rates
+- Check spam filter settings
+
+### Breaking Changes
+- **Demo login removed** - No longer available
+- **Email verification required** - Users must verify email before login
+- **Password required** - Signup now requires password
+- **Auto-login removed** - Users must verify email and login manually
+
+---
+
 ## [2.0.0-beta] - 2024-12-12 🚀 Beta Release
 
 ### Added - Real AI Integration (Phase 2 M2.1)

@@ -27,15 +27,25 @@ https://[platform-url]/login
 
 ### Test Account Options
 
-**Option 1: Demo Login**
-- Click "Demo Login" button
-- Automatically creates a test account
-- Best for quick exploration
-
-**Option 2: Sign Up**
-- Enter your name and email
+**Option 1: Email/Password Signup** (Recommended)
+- Click "Sign up" link
+- Enter name, email, and password
+- Verify email (check inbox)
+- Login with email/password
 - Creates your own workspace
 - Data persists between sessions
+
+**Option 2: Google OAuth** (Quickest)
+- Click "Sign in with Google"
+- Authenticate with Google account
+- Account auto-created and verified
+- Immediately logged in
+
+**Option 3: Microsoft OAuth** (If configured)
+- Click "Sign in with Microsoft"
+- Authenticate with Microsoft account
+- Account created if enabled
+- Immediately logged in
 
 ---
 
@@ -45,11 +55,12 @@ https://[platform-url]/login
 
 Please test this complete flow:
 
-1. **Login** → Demo login or create account
-2. **Create Job** → Jobs → New Job → Fill details → Save
-3. **Upload Resume** → Select job → Upload Resumes → Upload a PDF
-4. **Review Score** → Wait for AI processing → Check candidate score
-5. **View Candidate** → Go to Candidates → See AI-created profile
+1. **Sign Up** → Create account with email/password → Verify email
+2. **Login** → Login with email/password (or use OAuth)
+3. **Create Job** → Jobs → New Job → Fill details → Save
+4. **Upload Resume** → Select job → Upload Resumes → Upload a PDF
+5. **Review Score** → Wait for AI processing → Check candidate score
+6. **View Candidate** → Go to Candidates → See AI-created profile
 
 ### Priority 2: Team Features
 
@@ -108,8 +119,9 @@ Please don't report these - we know about them:
 
 | Limitation | Status |
 |------------|--------|
+| Email verification required for email/password accounts | ✅ Implemented |
+| OAuth accounts auto-verified | ✅ Working |
 | No password reset yet | Coming soon |
-| No email notifications | In development |
 | Limited to English resumes | Planned enhancement |
 | No mobile app | Web-only for now |
 
@@ -118,7 +130,11 @@ Please don't report these - we know about them:
 ## Testing Checklist
 
 ### Basic Tests
-- [ ] Can log in
+- [ ] Can sign up with email/password
+- [ ] Can verify email
+- [ ] Can log in with email/password
+- [ ] Can log in with Google OAuth
+- [ ] Can log in with Microsoft OAuth (if available)
 - [ ] Can see dashboard
 - [ ] Can navigate sidebar
 - [ ] Can create a job

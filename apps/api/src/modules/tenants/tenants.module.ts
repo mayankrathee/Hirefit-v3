@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
 import { TenantsController } from './tenants.controller';
+import { EmailModule } from '../email/email.module';
 
 @Module({
+  imports: [EmailModule],
   controllers: [TenantsController],
   providers: [TenantsService],
   exports: [TenantsService],

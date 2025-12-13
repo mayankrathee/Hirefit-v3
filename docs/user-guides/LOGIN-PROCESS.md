@@ -2,26 +2,31 @@
 
 ## Overview
 
-HireFit supports multiple authentication methods depending on your configuration. This guide explains the complete login process for both **new users** (who need to sign up first) and **existing users**.
+HireFit supports multiple secure authentication methods with email verification. This guide explains the complete login process for both **new users** (who need to sign up first) and **existing users**.
 
 ---
 
 ## 🔐 Authentication Methods
 
-### 1. **Email/Password Signup** (Primary for New Users)
-- **Who**: New users creating their first account
-- **Flow**: Sign up → Create workspace → Auto-login
-- **Endpoint**: `POST /api/tenants/signup`
+### 1. **Email/Password Authentication** (Primary Method)
+- **Who**: All users
+- **Flow**: Sign up → Verify email → Login with email/password
+- **Security**: Password hashed with bcrypt, email verification required
+- **Endpoints**: 
+  - `POST /api/tenants/signup` (signup)
+  - `POST /api/auth/login` (login)
 
-### 2. **Azure AD SSO** (Enterprise)
+### 2. **Google OAuth** (Social Login)
+- **Who**: Users with Google accounts
+- **Flow**: Click "Sign in with Google" → OAuth → Auto-login
+- **Security**: Email auto-verified (Google verifies emails)
+- **Endpoint**: `GET /api/auth/google/login`
+
+### 3. **Microsoft OAuth** (Enterprise SSO)
 - **Who**: Users in organizations with Azure AD configured
-- **Flow**: Redirect to Microsoft → OAuth → Auto-login
+- **Flow**: Click "Sign in with Microsoft" → OAuth → Auto-login
+- **Security**: Email auto-verified (Microsoft verifies emails)
 - **Endpoint**: `GET /api/auth/azure-ad/login`
-
-### 3. **Demo Login** (Development/Testing)
-- **Who**: Test users, developers, beta testers
-- **Flow**: One-click login → Auto-create demo account
-- **Endpoint**: `POST /api/auth/demo`
 
 ---
 
@@ -32,8 +37,9 @@ HireFit supports multiple authentication methods depending on your configuration
 **URL**: `https://hirefit-web-beta...azurecontainerapps.io/login`
 
 The user sees:
+- **"Sign in with Google"** button
 - **"Sign in with Microsoft"** button (if Azure AD configured)
-- **"Try Demo"** button (always available)
+- **Email/Password login form**
 - **"Don't have an account? Sign up"** link
 
 ### **Step 2: New User Chooses Sign Up**
@@ -46,6 +52,7 @@ The user sees:
    - First Name
    - Last Name
    - Email Address
+   - Password (minimum 8 characters)
 4. User clicks **"Create Account"**
 
 **Backend Process** (`POST /api/tenants/signup`):
@@ -58,53 +65,82 @@ The user sees:
 - Set default limits (20 AI scores/month, etc.)
 
 // 2. Create User Account
+- Hash password with bcrypt (10 rounds)
 - Create user with role: 'tenant_admin'
 - Link user to workspace
 - Set user as workspace owner
+- Generate email verification token
+- Set emailVerified: false
 
-// 3. Initialize Features
+// 3. Send Verification Email
+- Generate verification link with token
+- Send email via EmailService
+- Token expires in 24 hours
+
+// 4. Initialize Features
 - Auto-seed feature definitions (if not already done)
 - Enable 'core' feature (always enabled)
 - Enable 'ai_screening' feature with 20/month limit
 - Create TenantFeature records
 
-// 4. Return Response
+// 5. Return Response
 - Workspace info (slug, limits)
 - User info (email, name, role)
 ```
 
 **Frontend Response**:
-- Shows success message
+- Shows success message with email verification instructions
 - Displays workspace info
 - **User is NOT automatically logged in** after signup
-- User must go back to login page
+- User must verify email before logging in
+- User can go to login page after verification
 
-### **Step 3: New User Logs In After Signup**
+### **Step 3: Email Verification**
 
-After signup, the user needs to log in. They have three options:
+1. User receives verification email
+2. User clicks verification link
+3. Backend verifies token (`GET /api/onboarding/verify-email?token=...`)
+4. Email marked as verified
+5. Welcome email sent
+6. User can now log in
 
-#### **Option 1: Demo Login** (Easiest for Testing)
+### **Step 4: New User Logs In**
 
-1. User clicks **"Try Demo"** button on login page
-2. Frontend calls `POST /api/auth/demo`
+After email verification, the user can log in using any of these methods:
 
-**Backend Process**:
+#### **Option 1: Email/Password Login**
+
+1. User goes to `/login` page
+2. Enters email and password
+3. Optionally enters organization slug
+4. Clicks **"Sign in"**
+
+**Backend Process** (`POST /api/auth/login`):
 
 ```typescript
-// 1. Check/Create Demo Tenant
-- Look for tenant with slug: 'demo-company'
-- If not exists, create it
+// 1. Find User
+- Search for user by email (globally)
+- If not found, return "Invalid email or password"
 
-// 2. Check/Create Demo User
-- Look for user: demo@hirefit.local
-- If not exists, create with role: 'tenant_admin'
+// 2. Verify Password
+- Compare provided password with stored hash
+- If invalid, return "Invalid email or password"
 
-// 3. Generate Tokens
+// 3. Check Email Verification
+- If email not verified, return error:
+  "Please verify your email before logging in. Check your inbox for the verification link."
+
+// 4. Check Account Status
+- If account inactive, return error
+- If tenant slug provided, verify it matches user's tenant
+
+// 5. Generate Tokens
 - Create JWT access token (1 hour expiry)
 - Create JWT refresh token (7 days expiry)
+- Update last login timestamp
 - Include user and tenant info in response
 
-// 4. Return Tokens
+// 6. Return Tokens
 {
   accessToken: "eyJhbGciOiJIUzI1NiIs...",
   refreshToken: "eyJhbGciOiJIUzI1NiIs...",
@@ -112,12 +148,12 @@ After signup, the user needs to log in. They have three options:
   tokenType: "Bearer",
   user: {
     id: "...",
-    email: "demo@hirefit.local",
-    firstName: "Demo",
-    lastName: "User",
+    email: "user@example.com",
+    firstName: "John",
+    lastName: "Doe",
     role: "tenant_admin",
     tenantId: "...",
-    tenantName: "Demo Company"
+    tenantName: "John's Workspace"
   }
 }
 ```
@@ -138,15 +174,50 @@ setUser(result.user);
 router.push('/dashboard');
 ```
 
-#### **Option 2: Azure AD Login** (If Configured)
+#### **Option 2: Google OAuth Login**
 
-1. User clicks **"Sign in with Microsoft"**
+1. User clicks **"Sign in with Google"** button
+2. Frontend redirects to: `/api/auth/google/login?redirect_uri=...`
+3. Backend redirects to Google OAuth consent screen
+4. User authenticates with Google
+5. Google redirects back with authorization code
+6. Backend exchanges code for tokens
+7. Backend finds or creates user (email auto-verified)
+8. Backend redirects to frontend with tokens in URL
+9. Frontend stores tokens and redirects to dashboard
+
+**Backend Process** (`handleGoogleCallback`):
+
+```typescript
+// 1. Find User
+- Search by Google user ID (externalId: "google:sub")
+- If not found, search by email globally
+- If found but no externalId, link Google account
+
+// 2. Create User (if new)
+- If user doesn't exist, create personal workspace
+- Create user account with Google ID
+- Mark email as verified (Google verifies emails)
+- Initialize features for free tier
+
+// 3. Generate Tokens
+- Create JWT tokens
+- Update last login timestamp
+
+// 4. Redirect to Frontend
+- Include tokens in URL query params
+- Frontend callback page processes tokens
+```
+
+#### **Option 3: Microsoft OAuth Login**
+
+1. User clicks **"Sign in with Microsoft"** button
 2. Frontend redirects to: `/api/auth/azure-ad/login?redirect_uri=...`
 3. Backend redirects to Microsoft login page
 4. User authenticates with Microsoft
 5. Microsoft redirects back with authorization code
 6. Backend exchanges code for tokens
-7. Backend finds or creates user
+7. Backend finds or creates user (email auto-verified)
 8. Backend redirects to frontend with tokens in URL
 9. Frontend stores tokens and redirects to dashboard
 
@@ -158,22 +229,19 @@ router.push('/dashboard');
 - If not found, search by email within tenant
 - If still not found and auto-provision enabled, create user
 
-// 2. Generate Tokens
+// 2. Mark Email Verified
+- Microsoft OAuth users have verified emails
+- Set emailVerified: true
+- Set emailVerifiedAt: current timestamp
+
+// 3. Generate Tokens
 - Create JWT tokens
 - Update last login timestamp
 
-// 3. Redirect to Frontend
+// 4. Redirect to Frontend
 - Include tokens in URL query params
 - Frontend callback page processes tokens
 ```
-
-#### **Option 3: Email/Password Login** (Not Currently Implemented)
-
-Currently, HireFit uses:
-- **Signup** → Creates account (no password required)
-- **Login** → Uses Azure AD or Demo login
-
-Email/password authentication is not implemented in the current version.
 
 ---
 
@@ -188,33 +256,55 @@ Email/password authentication is not implemented in the current version.
    │
    ├─→ Clicks "Sign up"
    │   │
-   │   └─→ Fills signup form (name, email)
+   │   └─→ Fills signup form (name, email, password)
    │       │
    │       └─→ POST /api/tenants/signup
    │           │
+   │           ├─→ Hash password with bcrypt
    │           ├─→ Create Personal Workspace
-   │           ├─→ Create User Account
+   │           ├─→ Create User Account (emailVerified: false)
+   │           ├─→ Generate verification token
+   │           ├─→ Send verification email
    │           ├─→ Initialize Features (core, ai_screening)
    │           └─→ Return workspace info
    │
    │       └─→ User sees success message
-   │           └─→ Must go back to /login
+   │           └─→ "Check your email" message
    │
-   └─→ Clicks "Try Demo" or "Sign in with Microsoft"
+   │   └─→ User clicks verification link in email
+   │       │
+   │       └─→ GET /api/onboarding/verify-email?token=...
+   │           │
+   │           ├─→ Verify token (check expiry)
+   │           ├─→ Set emailVerified: true
+   │           ├─→ Send welcome email
+   │           └─→ Return success
+   │
+   │       └─→ User can now log in
+   │
+   └─→ Clicks "Sign in with Google" or "Sign in with Microsoft"
        │
-       ├─→ Demo Login
+       ├─→ Google OAuth
        │   │
-       │   └─→ POST /api/auth/demo
+       │   └─→ GET /api/auth/google/login
        │       │
-       │       ├─→ Create/Find Demo Tenant
-       │       ├─→ Create/Find Demo User
-       │       ├─→ Generate JWT Tokens
-       │       └─→ Return tokens + user info
+       │       └─→ Redirect to Google
+       │           │
+       │           └─→ User authenticates
+       │               │
+       │               └─→ Google callback
+       │                   │
+       │                   └─→ Exchange code for tokens
+       │                       │
+       │                       └─→ Find/Create user
+       │                           │
+       │                           ├─→ Email auto-verified
+       │                           └─→ Redirect to frontend with tokens
+       │                               │
+       │                               └─→ Frontend stores tokens
+       │                                   └─→ Redirect to /dashboard ✅
        │
-       │   └─→ Frontend stores tokens
-       │       └─→ Redirect to /dashboard ✅
-       │
-       └─→ Azure AD Login
+       └─→ Microsoft OAuth
            │
            └─→ GET /api/auth/azure-ad/login
                │
@@ -228,10 +318,36 @@ Email/password authentication is not implemented in the current version.
                                │
                                └─→ Find/Create user
                                    │
+                                   ├─→ Email auto-verified
                                    └─→ Redirect to frontend with tokens
                                        │
                                        └─→ Frontend stores tokens
                                            └─→ Redirect to /dashboard ✅
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    EXISTING USER LOGIN                           │
+└─────────────────────────────────────────────────────────────────┘
+
+1. User visits /login
+   │
+   ├─→ Email/Password Login
+   │   │
+   │   └─→ Enters email and password
+   │       │
+   │       └─→ POST /api/auth/login
+   │           │
+   │           ├─→ Verify password
+   │           ├─→ Check email verified
+   │           ├─→ Generate JWT tokens
+   │           └─→ Return tokens + user info
+   │
+   │       └─→ Frontend stores tokens
+   │           └─→ Redirect to /dashboard ✅
+   │
+   └─→ OAuth Login (Google/Microsoft)
+       │
+       └─→ Same flow as new user OAuth
+           └─→ Redirect to /dashboard ✅
 ```
 
 ---
@@ -268,22 +384,34 @@ Email/password authentication is not implemented in the current version.
 
 ## 🛡️ Security Features
 
-### **1. JWT Token Validation**
+### **1. Password Security**
+- Passwords hashed with bcrypt (10 rounds)
+- Never stored in plain text
+- Minimum 8 characters required
+- Passwords validated on login
+
+### **2. Email Verification**
+- Required for email/password accounts
+- Verification token expires in 24 hours
+- OAuth accounts auto-verified (Google/Microsoft verify emails)
+- Users cannot log in until email is verified
+
+### **3. JWT Token Validation**
 - Tokens are signed with secret key
 - Backend validates signature on every request
 - Invalid tokens result in 401 Unauthorized
 
-### **2. Tenant Isolation**
+### **4. Tenant Isolation**
 - Every request includes `X-Tenant-ID` header
 - Backend verifies user belongs to tenant
 - Users cannot access other tenants' data
 
-### **3. Role-Based Access Control**
+### **5. Role-Based Access Control**
 - Each user has a role (tenant_admin, member, viewer)
 - Roles determine what actions are allowed
 - Enforced by `@Roles()` decorator on endpoints
 
-### **4. Session Management**
+### **6. Session Management**
 - Tokens stored in browser localStorage
 - No server-side session storage (stateless)
 - Logout clears localStorage tokens
@@ -302,8 +430,9 @@ interface AuthContextType {
   accessToken: string | null;      // JWT access token
   isLoading: boolean;             // Loading state
   isAuthenticated: boolean;        // Computed from user
-  login: (tenantSlug?: string) => Promise<void>;
-  demoLogin: () => Promise<void>;
+  login: (email: string, password: string, tenantSlug?: string) => Promise<void>;
+  loginWithGoogle: (tenantSlug?: string) => void;
+  loginWithMicrosoft: (tenantSlug?: string) => void;
   logout: () => void;
   refreshToken: () => Promise<void>;
 }
@@ -332,22 +461,33 @@ Routes are protected using middleware:
 ### **Scenario 1: New User Signs Up**
 
 1. User visits `/signup`
-2. Fills form and submits
+2. Fills form (name, email, password) and submits
 3. Account created, workspace initialized
-4. User sees success message
-5. User clicks "Go to Login"
-6. User clicks "Try Demo" (or Azure AD login)
-7. User is logged in and redirected to dashboard
+4. Verification email sent
+5. User sees "Check your email" message
+6. User clicks verification link in email
+7. Email verified, welcome email sent
+8. User goes to `/login`
+9. User enters email and password
+10. User is logged in and redirected to dashboard
 
 ### **Scenario 2: Existing User Logs In**
 
 1. User visits `/login`
-2. User clicks "Try Demo" (or Azure AD)
-3. Backend finds existing user
+2. User enters email and password (or clicks OAuth button)
+3. Backend verifies credentials and email verification
 4. Tokens generated
 5. User redirected to dashboard
 
-### **Scenario 3: Token Expires**
+### **Scenario 3: User Forgets to Verify Email**
+
+1. User signs up
+2. User tries to log in before verifying email
+3. Backend returns error: "Please verify your email before logging in"
+4. User checks email and clicks verification link
+5. User can now log in
+
+### **Scenario 4: Token Expires**
 
 1. User makes API request
 2. Backend returns 401 (token expired)
@@ -356,7 +496,7 @@ Routes are protected using middleware:
 5. Original request retried
 6. User continues working (seamless)
 
-### **Scenario 4: User Logs Out**
+### **Scenario 5: User Logs Out**
 
 1. User clicks logout button
 2. Frontend clears localStorage:
@@ -370,13 +510,44 @@ Routes are protected using middleware:
 
 ## 🔍 Troubleshooting
 
-### **Issue: "User not found" after Azure AD login**
+### **Issue: "Please verify your email before logging in"**
 
-**Cause**: User doesn't exist in database and auto-provision is disabled
+**Cause**: User hasn't verified their email address
 
 **Solution**: 
-- Enable auto-provision in tenant settings, OR
+- Check email inbox (and spam folder) for verification email
+- Click the verification link
+- If link expired, request a new verification email
+- OAuth users (Google/Microsoft) don't need to verify (auto-verified)
+
+### **Issue: "Invalid email or password"**
+
+**Cause**: Wrong credentials or account doesn't exist
+
+**Solution**: 
+- Check email spelling
+- Check password (case-sensitive)
+- Try password reset (if available)
+- Or use OAuth login instead
+
+### **Issue: "User not found" after OAuth login**
+
+**Cause**: User doesn't exist and auto-provision is disabled (for Microsoft)
+
+**Solution**: 
+- For Google: Account is auto-created
+- For Microsoft: Enable auto-provision in tenant settings, OR
 - Admin must create user account first
+
+### **Issue: Verification email not received**
+
+**Cause**: Email delivery issues or spam filter
+
+**Solution**: 
+- Check spam/junk folder
+- Verify email address is correct
+- Request resend verification email
+- Check email service configuration
 
 ### **Issue: "Feature 'core' not found"**
 
@@ -409,24 +580,35 @@ Routes are protected using middleware:
 
 **For New Users:**
 1. ✅ Sign up at `/signup` (creates account + workspace)
-2. ✅ Go to `/login`
-3. ✅ Click "Try Demo" or "Sign in with Microsoft"
-4. ✅ Automatically logged in and redirected to dashboard
+2. ✅ Check email and verify account
+3. ✅ Go to `/login`
+4. ✅ Enter email and password (or use OAuth)
+5. ✅ Automatically logged in and redirected to dashboard
 
 **For Existing Users:**
 1. ✅ Go to `/login`
-2. ✅ Click "Try Demo" or "Sign in with Microsoft"
+2. ✅ Enter email and password (or use OAuth)
 3. ✅ Automatically logged in and redirected to dashboard
 
 **Key Points:**
-- Signup creates account but **does not log you in**
-- You must log in separately after signup
-- Demo login is easiest for testing
+- **Email verification is required** for email/password accounts
+- OAuth accounts (Google/Microsoft) are **auto-verified**
+- Passwords are **hashed and secure**
 - Tokens are stored in browser localStorage
 - Tokens automatically refresh when expired
+- Multiple login methods available for convenience
 
 ---
 
-**Last Updated**: December 12, 2025  
-**Version**: Beta 1.0
+## 🔐 Authentication Methods Comparison
 
+| Method | Email Verification | Password Required | Auto-Create Account | Best For |
+|--------|-------------------|------------------|-------------------|----------|
+| Email/Password | ✅ Required | ✅ Yes | ✅ Yes (on signup) | All users |
+| Google OAuth | ✅ Auto-verified | ❌ No | ✅ Yes | Google users |
+| Microsoft OAuth | ✅ Auto-verified | ❌ No | ⚠️ If enabled | Enterprise users |
+
+---
+
+**Last Updated**: January 2025  
+**Version**: 2.0 (Email Verification & OAuth Update)

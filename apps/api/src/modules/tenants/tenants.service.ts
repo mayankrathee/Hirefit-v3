@@ -10,12 +10,17 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenant.dto';
 import { FeaturesService } from '../features/features.service';
+import { EmailService } from '../email/email.service';
+import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 
 // Individual user registration (primary flow)
 export interface IndividualRegistrationDto {
   email: string;
   firstName: string;
   lastName: string;
+  password: string;
 }
 
 export interface IndividualRegistrationResult {
@@ -76,6 +81,8 @@ export class TenantsService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => FeaturesService))
     private featuresService: FeaturesService,
+    private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
 
   async create(createTenantDto: CreateTenantDto) {
@@ -374,6 +381,13 @@ export class TenantsService {
       maxTeamMembers: 1,
     };
 
+    // Hash password
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    // Generate verification token
+    const verificationToken = randomBytes(32).toString('hex');
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     // Create personal workspace and user in a transaction
     const result = await this.prisma.$transaction(async (tx) => {
       // Create personal workspace
@@ -396,15 +410,19 @@ export class TenantsService {
         },
       });
 
-      // Create owner user
+      // Create owner user with password hash and verification token
       const user = await tx.user.create({
         data: {
           tenantId: workspace.id,
-          email: dto.email,
+          email: dto.email.toLowerCase(),
           firstName: dto.firstName,
           lastName: dto.lastName,
           role: 'tenant_admin',  // Owner has full control
           isActive: true,
+          passwordHash,
+          emailVerified: false, // Email not verified yet
+          emailVerificationToken: verificationToken,
+          emailVerificationExpires: verificationExpires,
         },
       });
 
@@ -416,11 +434,27 @@ export class TenantsService {
 
       this.logger.log(`Registered individual user: ${user.email} with personal workspace: ${workspace.slug}`);
 
-      return { workspace, user };
+      return { workspace, user, verificationToken };
     });
 
     // Initialize features for the workspace based on free tier
     await this.featuresService.initializeTenantFeatures(result.workspace.id, 'free');
+
+    // Send verification email
+    const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+    const verificationUrl = `${webUrl}/verify-email?token=${result.verificationToken}`;
+    
+    try {
+      await this.emailService.sendVerificationEmail({
+        email: result.user.email,
+        firstName: result.user.firstName,
+        verificationUrl,
+      });
+      this.logger.log(`Verification email sent to ${result.user.email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send verification email: ${error.message}`);
+      // Don't fail signup if email fails, but log it
+    }
 
     return {
       workspace: {

@@ -46,6 +46,23 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
+export class LoginDto {
+  @ApiProperty({ description: 'User email' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @ApiProperty({ description: 'User password' })
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+
+  @ApiPropertyOptional({ description: 'Tenant slug (optional)' })
+  @IsString()
+  @IsOptional()
+  tenantSlug?: string;
+}
+
 export class TokenResponseDto {
   @ApiProperty({ description: 'JWT access token' })
   accessToken: string;

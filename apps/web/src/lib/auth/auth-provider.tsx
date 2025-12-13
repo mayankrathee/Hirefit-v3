@@ -18,8 +18,9 @@ interface AuthContextType {
   accessToken: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (tenantSlug?: string) => Promise<void>;
-  demoLogin: () => Promise<void>;
+  login: (email: string, password: string, tenantSlug?: string) => Promise<void>;
+  loginWithGoogle: (tenantSlug?: string) => void;
+  loginWithMicrosoft: (tenantSlug?: string) => void;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
 }
@@ -74,22 +75,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  /**
-   * Demo login - uses backend to create test tenant/user
-   */
-  const demoLogin = useCallback(async () => {
+  const login = useCallback(async (email: string, password: string, tenantSlug?: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/auth/demo`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ email, password, tenantSlug }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Demo login failed');
+        throw new Error(error.message || 'Login failed');
       }
 
       const data = await response.json();
@@ -105,23 +104,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       router.push('/dashboard');
     } catch (error) {
-      console.error('Demo login failed:', error);
+      console.error('Login failed:', error);
       throw error;
     } finally {
       setIsLoading(false);
     }
   }, [router]);
 
-  const login = useCallback(async (tenantSlug?: string) => {
-    // In development without Azure AD, use demo login
-    const azureClientId = process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID;
+  const loginWithGoogle = useCallback((tenantSlug?: string) => {
+    const params = new URLSearchParams({
+      redirect_uri: `${window.location.origin}/auth/callback`,
+    });
     
-    if (!azureClientId) {
-      // No Azure AD configured, use demo login
-      return demoLogin();
+    if (tenantSlug) {
+      params.set('tenant', tenantSlug);
     }
 
-    // Production: redirect to Azure AD
+    window.location.href = `${API_URL}/api/auth/google/login?${params.toString()}`;
+  }, []);
+
+  const loginWithMicrosoft = useCallback((tenantSlug?: string) => {
     const params = new URLSearchParams({
       redirect_uri: `${window.location.origin}/auth/callback`,
     });
@@ -131,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     window.location.href = `${API_URL}/api/auth/azure-ad/login?${params.toString()}`;
-  }, [demoLogin]);
+  }, []);
 
   const logout = useCallback(async () => {
     try {
@@ -206,7 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
-        demoLogin,
+        loginWithGoogle,
+        loginWithMicrosoft,
         logout,
         refreshToken: refreshTokenFunc,
       }}

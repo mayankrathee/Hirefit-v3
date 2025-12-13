@@ -63,9 +63,10 @@ Stay informed:
 ### For Testers
 
 1. **Get Access**: Receive login URL from coordinator
-2. **Login**: Use "Demo Login" for quick start
-3. **Follow Guide**: See [Beta Tester Guide](training/beta-tester-guide.md)
-4. **Report Issues**: Email support@hirefit.io
+2. **Sign Up**: Create account with email/password (verify email required)
+3. **Or Login**: Use Google OAuth or Microsoft OAuth for quick start
+4. **Follow Guide**: See [Beta Tester Guide](training/beta-tester-guide.md)
+5. **Report Issues**: Email support@hirefit.io
 
 ### Documentation
 
@@ -90,11 +91,24 @@ Stay informed:
 
 ---
 
+## Authentication Methods
+
+HireFit supports multiple secure authentication methods:
+
+| Method | Email Verification | Best For |
+|--------|-------------------|----------|
+| Email/Password | ✅ Required | All users |
+| Google OAuth | ✅ Auto-verified | Google users |
+| Microsoft OAuth | ✅ Auto-verified | Enterprise users |
+
+**Note**: Email verification is required for email/password accounts. OAuth accounts are automatically verified.
+
 ## Known Issues
 
 | Issue | Workaround |
 |-------|------------|
-| Password reset not implemented | Contact support |
+| Email verification required | Check inbox and spam folder |
+| Password reset not implemented | Contact support or use OAuth |
 | Mobile experience limited | Use desktop browser |
 | English resumes only | Non-English may have lower accuracy |
 

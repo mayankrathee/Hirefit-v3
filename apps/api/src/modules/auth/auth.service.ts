@@ -6,8 +6,12 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { EmailService } from '../email/email.service';
+import { FeaturesService } from '../features/features.service';
 import { JwtPayload } from '../../common/decorators/user.decorator';
 
 export interface TokenResponse {
@@ -36,6 +40,15 @@ export interface AzureAdProfile {
   tid?: string;       // Azure AD Tenant ID (not our tenant)
 }
 
+export interface GoogleProfile {
+  sub: string;        // Google user ID
+  email: string;
+  name: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -45,7 +58,60 @@ export class AuthService {
     private configService: ConfigService,
     private usersService: UsersService,
     private tenantsService: TenantsService,
+    private emailService: EmailService,
+    private featuresService: FeaturesService,
   ) {}
+
+  /**
+   * Email/password login
+   */
+  async loginWithPassword(email: string, password: string, tenantSlug?: string): Promise<TokenResponse> {
+    this.logger.log(`Email/password login attempt for: ${email}`);
+
+    // Find user by email (globally, not tenant-specific for login)
+    const user = await this.usersService.findByEmailGlobal(email);
+    
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Check if user has a password set
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Please sign in using your OAuth provider or set a password');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      throw new UnauthorizedException('Please verify your email before logging in. Check your inbox for the verification link.');
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated. Please contact support.');
+    }
+
+    // If tenant slug provided, verify it matches user's tenant
+    if (tenantSlug) {
+      const tenant = await this.tenantsService.findBySlug(tenantSlug);
+      if (!tenant || tenant.id !== user.tenantId) {
+        throw new BadRequestException('Invalid tenant');
+      }
+    }
+
+    // Update last login
+    await this.usersService.updateLastLogin(user.id);
+
+    // Get tenant info
+    const tenant = await this.tenantsService.findById(user.tenantId);
+
+    return this.generateTokens(user, tenant);
+  }
 
   /**
    * Handle Azure AD callback and generate tokens
@@ -95,11 +161,116 @@ export class AuthService {
       await this.usersService.update(user!.id, { externalId: profile.oid });
     }
 
+    // Mark email as verified for OAuth users (Microsoft verifies emails)
+    if (!user!.emailVerified) {
+      await this.usersService.update(user!.id, {
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+      });
+    }
+
     // Update last login
     await this.usersService.updateLastLogin(user!.id);
 
     // Get tenant info
     const userTenant = await this.tenantsService.findById(user!.tenantId);
+
+    return this.generateTokens(user, userTenant);
+  }
+
+  /**
+   * Handle Google OAuth callback and generate tokens
+   */
+  async handleGoogleCallback(profile: GoogleProfile, tenantSlug?: string): Promise<TokenResponse> {
+    this.logger.log(`Google login for: ${profile.email}`);
+
+    // Find or determine tenant
+    let tenant;
+    if (tenantSlug) {
+      tenant = await this.tenantsService.findBySlug(tenantSlug);
+      if (!tenant) {
+        throw new BadRequestException('Invalid tenant');
+      }
+    }
+
+    // Find user by external ID (Google sub) or email
+    let user = await this.usersService.findByExternalId(`google:${profile.sub}`);
+    
+    if (!user) {
+      // Try to find by email globally
+      user = await this.usersService.findByEmailGlobal(profile.email);
+      
+      if (user && !user.externalId) {
+        // Link Google account to existing user
+        await this.usersService.update(user.id, { externalId: `google:${profile.sub}` });
+      }
+    }
+
+    if (!user) {
+      // For new Google OAuth users, create a personal workspace and account
+      // Generate slug from name
+      const nameSlug = `${profile.given_name || 'user'}-${profile.family_name || ''}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'user';
+      let slug = nameSlug;
+      let suffix = 1;
+
+      // Ensure unique slug
+      while (await this.tenantsService.findBySlug(slug)) {
+        slug = `${nameSlug}-${suffix}`;
+        suffix++;
+      }
+
+      // Create personal workspace
+      tenant = await this.tenantsService.create({
+        name: `${profile.given_name || 'User'}'s Workspace`,
+        slug,
+        type: 'personal',
+        subscriptionTier: 'free',
+        maxJobs: 3,
+        maxCandidates: 50,
+        maxAiScoresPerMonth: 20,
+        maxTeamMembers: 1,
+      });
+
+      // Create user
+      user = await this.usersService.create({
+        tenantId: tenant.id,
+        email: profile.email,
+        firstName: profile.given_name || profile.name?.split(' ')[0] || 'User',
+        lastName: profile.family_name || profile.name?.split(' ').slice(1).join(' ') || '',
+        externalId: `google:${profile.sub}`,
+        role: 'tenant_admin',
+      });
+
+      // Mark email as verified (Google verifies emails)
+      await this.usersService.update(user.id, {
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+      });
+
+      // Initialize features for the workspace
+      await this.featuresService.initializeTenantFeatures(tenant.id, 'free');
+
+      this.logger.log(`Created new user from Google: ${user.email}`);
+    } else {
+      // Update external ID if not set
+      if (!user.externalId) {
+        await this.usersService.update(user.id, { externalId: `google:${profile.sub}` });
+      }
+
+      // Mark email as verified for OAuth users (Google verifies emails)
+      if (!user.emailVerified) {
+        await this.usersService.update(user.id, {
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
+        });
+      }
+    }
+
+    // Update last login
+    await this.usersService.updateLastLogin(user.id);
+
+    // Get tenant info
+    const userTenant = await this.tenantsService.findById(user.tenantId);
 
     return this.generateTokens(user, userTenant);
   }
@@ -195,51 +366,5 @@ export class AuthService {
     // TODO: Implement token blacklist with Redis
   }
 
-  /**
-   * Demo login - creates a test tenant and user for development/testing
-   * This should be disabled in production!
-   */
-  async demoLogin(): Promise<TokenResponse> {
-    const isDevelopment = this.configService.get('nodeEnv') !== 'production';
-    
-    if (!isDevelopment) {
-      throw new UnauthorizedException('Demo login is not available in production');
-    }
-
-    this.logger.log('Demo login requested');
-
-    // Check if demo tenant exists
-    let tenant = await this.tenantsService.findBySlug('demo-company');
-    
-    if (!tenant) {
-      // Create demo tenant
-      tenant = await this.tenantsService.create({
-        name: 'Demo Company',
-        slug: 'demo-company',
-        domain: 'demo.hirefit.local',
-      });
-      this.logger.log('Created demo tenant');
-    }
-
-    // Check if demo user exists
-    let user = await this.usersService.findByEmail(tenant.id, 'demo@hirefit.local');
-    
-    if (!user) {
-      // Create demo user
-      user = await this.usersService.create({
-        tenantId: tenant.id,
-        email: 'demo@hirefit.local',
-        firstName: 'Demo',
-        lastName: 'User',
-        role: 'tenant_admin',
-      });
-      this.logger.log('Created demo user');
-    }
-
-    // Update last login
-    await this.usersService.updateLastLogin(user!.id);
-
-    return this.generateTokens(user!, tenant);
-  }
 }
 

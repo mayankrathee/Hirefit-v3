@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { EmailModule } from '../email/email.module';
+import { FeaturesModule } from '../features/features.module';
 
 // Conditionally import Azure AD strategy only if credentials are configured
 const azureAdProviders: Provider[] = [];
@@ -31,6 +33,8 @@ if (process.env.AZURE_AD_CLIENT_ID && process.env.AZURE_AD_TENANT_ID) {
     }),
     UsersModule,
     TenantsModule,
+    EmailModule,
+    FeaturesModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, ...azureAdProviders],

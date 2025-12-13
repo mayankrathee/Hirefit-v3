@@ -47,11 +47,21 @@ DATABASE_URL="sqlserver://your-server.database.windows.net:1433;database=hirefit
 JWT_SECRET=<generate-strong-secret>
 JWT_EXPIRES_IN=7d
 
-# Azure AD SSO
+# Authentication
+JWT_SECRET=<generate-strong-secret>
+JWT_EXPIRES_IN=1h
+JWT_REFRESH_EXPIRES_IN=7d
+
+# Azure AD SSO (Microsoft OAuth)
 AZURE_AD_CLIENT_ID=<your-client-id>
 AZURE_AD_CLIENT_SECRET=<your-client-secret>
 AZURE_AD_TENANT_ID=<your-tenant-id>
 AZURE_AD_REDIRECT_URI=https://your-domain.com/api/auth/azure-ad/callback
+
+# Google OAuth (Optional)
+GOOGLE_CLIENT_ID=<your-google-client-id>
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+GOOGLE_REDIRECT_URI=https://your-domain.com/api/auth/google/callback
 
 # File Storage (Azure Blob)
 AZURE_STORAGE_ACCOUNT_NAME=<storage-account>
@@ -113,11 +123,15 @@ LOG_LEVEL=info
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `JWT_SECRET` | Secret for signing JWT tokens | - | Yes |
-| `JWT_EXPIRES_IN` | JWT token expiration | `7d` | No |
-| `AZURE_AD_CLIENT_ID` | Azure AD application ID | - | For SSO |
-| `AZURE_AD_CLIENT_SECRET` | Azure AD client secret | - | For SSO |
-| `AZURE_AD_TENANT_ID` | Azure AD tenant ID | - | For SSO |
-| `AZURE_AD_REDIRECT_URI` | OAuth callback URL | - | For SSO |
+| `JWT_EXPIRES_IN` | JWT access token expiration | `1h` | No |
+| `JWT_REFRESH_EXPIRES_IN` | JWT refresh token expiration | `7d` | No |
+| `AZURE_AD_CLIENT_ID` | Azure AD application ID | - | For Microsoft OAuth |
+| `AZURE_AD_CLIENT_SECRET` | Azure AD client secret | - | For Microsoft OAuth |
+| `AZURE_AD_TENANT_ID` | Azure AD tenant ID | - | For Microsoft OAuth |
+| `AZURE_AD_REDIRECT_URI` | Microsoft OAuth callback URL | - | For Microsoft OAuth |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | - | For Google OAuth |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | - | For Google OAuth |
+| `GOOGLE_REDIRECT_URI` | Google OAuth callback URL | - | For Google OAuth |
 
 ### AI Provider
 

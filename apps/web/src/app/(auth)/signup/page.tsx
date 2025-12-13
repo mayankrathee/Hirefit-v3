@@ -15,66 +15,37 @@ import {
   Zap,
   Building2,
   LogIn,
-  Rocket,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-// Signup success component with prominent login options
+// Signup success component with email verification message
 function SignupSuccess({ 
-  workspaceInfo, 
-  onAutoLogin 
+  workspaceInfo,
+  email,
+  onGoToLogin
 }: { 
   workspaceInfo: { slug: string; limits: { maxJobs: number; maxCandidates: number; maxAiScoresPerMonth: number } };
-  onAutoLogin: () => void;
+  email: string;
+  onGoToLogin: () => void;
 }) {
-  const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
-
-  const handleAutoLogin = async () => {
-    setIsAutoLoggingIn(true);
-    try {
-      // Use demo login to automatically log in the user
-      const response = await fetch(`${API_URL}/api/auth/demo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        throw new Error('Auto-login failed');
-      }
-
-      const data = await response.json();
-      const result = data.data || data;
-
-      // Store tokens
-      localStorage.setItem('accessToken', result.accessToken);
-      localStorage.setItem('refreshToken', result.refreshToken);
-      localStorage.setItem('user', JSON.stringify(result.user));
-
-      // Redirect to dashboard
-      window.location.href = '/dashboard';
-    } catch (error) {
-      console.error('Auto-login failed:', error);
-      // Fallback to manual login
-      onAutoLogin();
-    } finally {
-      setIsAutoLoggingIn(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Mail className="w-8 h-8 text-blue-600" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Welcome to HireFit!</h1>
+          <h1 className="text-2xl font-bold mb-2">Check your email!</h1>
           <p className="text-muted-foreground mb-2">
-            Your personal workspace is ready.
+            We've sent a verification link to
           </p>
+          <p className="font-medium text-sm mb-4">{email}</p>
           <p className="text-sm text-muted-foreground">
-            No email verification required. Start using HireFit right away!
+            Please click the link in the email to verify your account before logging in.
           </p>
         </div>
         
@@ -101,46 +72,20 @@ function SignupSuccess({
           </ul>
         </div>
         
-        {/* Login options */}
+        {/* Action buttons */}
         <div className="space-y-3">
           <button
-            onClick={handleAutoLogin}
-            disabled={isAutoLoggingIn}
-            className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isAutoLoggingIn ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Logging you in...
-              </>
-            ) : (
-              <>
-                <Rocket className="w-5 h-5" />
-                Start Using HireFit Now
-              </>
-            )}
-          </button>
-          
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t"></div>
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-muted-foreground">or</span>
-            </div>
-          </div>
-
-          <Link
-            href="/login"
-            className="block w-full border-2 border-primary text-primary py-3 rounded-lg font-medium hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+            onClick={onGoToLogin}
+            className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
           >
             <LogIn className="w-5 h-5" />
             Go to Login Page
-          </Link>
+          </button>
         </div>
 
         <p className="mt-6 text-xs text-muted-foreground text-center">
-          Need a team? <Link href="/signup?type=company" className="text-primary hover:underline">Upgrade anytime</Link>
+          Didn't receive the email? Check your spam folder or{' '}
+          <Link href="/login" className="text-primary hover:underline">contact support</Link>
         </p>
       </div>
     </div>
@@ -165,7 +110,9 @@ export default function SignupPage() {
     firstName: '',
     lastName: '',
     email: '',
+    password: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -189,6 +136,14 @@ export default function SignupPage() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
       setError('Please enter a valid email address');
+      return false;
+    }
+    if (!formData.password) {
+      setError('Password is required');
+      return false;
+    }
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters long');
       return false;
     }
     return true;
@@ -234,9 +189,9 @@ export default function SignupPage() {
     return (
       <SignupSuccess 
         workspaceInfo={workspaceInfo}
-        onAutoLogin={() => {
-          // Auto-login using demo login
-          router.push('/login?mode=demo');
+        email={formData.email}
+        onGoToLogin={() => {
+          router.push('/login');
         }}
       />
     );
@@ -316,6 +271,33 @@ export default function SignupPage() {
                   className="w-full pl-10 pr-4 py-3 rounded-lg border bg-white focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <input
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  placeholder="At least 8 characters"
+                  className="w-full pl-10 pr-12 py-3 rounded-lg border bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Must be at least 8 characters long
+              </p>
             </div>
 
             <button

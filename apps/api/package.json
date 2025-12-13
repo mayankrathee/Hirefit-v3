@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@azure/ai-form-recognizer": "^5.0.0",
+    "@azure/communication-email": "^1.1.0",
     "@azure/identity": "^4.0.0",
     "@azure/keyvault-secrets": "^4.7.0",
     "@azure/service-bus": "^7.9.0",

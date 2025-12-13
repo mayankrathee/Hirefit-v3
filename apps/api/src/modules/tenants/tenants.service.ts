@@ -359,6 +359,11 @@ export class TenantsService {
     });
 
     if (existingUser) {
+      if (!existingUser.emailVerified) {
+        throw new ConflictException(
+          'Email already registered but not verified. Please check your email for the verification link, or use the resend verification feature.',
+        );
+      }
       throw new ConflictException('Email already registered. Please sign in.');
     }
 

@@ -361,6 +361,57 @@ export class OnboardingService {
     return this.sendVerificationEmail(userId);
   }
 
+  async testSendVerificationEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
+    const user = await this.prisma.user.findFirst({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (!user) {
+      return { success: false, message: 'User not found with this email' };
+    }
+
+    if (user.emailVerified) {
+      return { success: false, message: 'Email already verified' };
+    }
+
+    // Generate verification token
+    const token = randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationToken: token,
+        emailVerificationExpires: expires,
+      },
+    });
+
+    // Send email
+    const verificationUrl = `${this.appUrl}/verify-email?token=${token}`;
+    try {
+      const emailResult = await this.emailService.sendVerificationEmail({
+        email: user.email,
+        firstName: user.firstName,
+        verificationUrl,
+      });
+
+      if (emailResult.success) {
+        this.logger.log(`Test verification email sent to ${user.email} (Message ID: ${emailResult.messageId})`);
+        return { success: true, message: `Verification email sent to ${user.email}` };
+      } else {
+        this.logger.error(`Failed to send test verification email: ${emailResult.error}`);
+        return { success: false, message: 'Failed to send email', error: emailResult.error };
+      }
+    } catch (error) {
+      this.logger.error(`Exception sending test verification email: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { 
+        success: false, 
+        message: 'Exception sending email', 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
+  }
+
   // ============================================================================
   // HELPERS
   // ============================================================================

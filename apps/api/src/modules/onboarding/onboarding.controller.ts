@@ -117,5 +117,14 @@ export class OnboardingController {
   verifyEmail(@Query('token') token: string) {
     return this.onboardingService.verifyEmail(token);
   }
+
+  @Post('test-send-email')
+  @Public()
+  @SkipTenantCheck()
+  @ApiOperation({ summary: 'Test endpoint to send verification email by email address (for testing only)' })
+  @ApiResponse({ status: 200, description: 'Test email sent' })
+  async testSendEmail(@Body() body: { email: string }) {
+    return this.onboardingService.testSendVerificationEmail(body.email);
+  }
 }
 

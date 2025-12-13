@@ -441,18 +441,23 @@ export class TenantsService {
     await this.featuresService.initializeTenantFeatures(result.workspace.id, 'free');
 
     // Send verification email
-    const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+    const webUrl = this.configService.get<string>('WEB_URL') || this.configService.get<string>('webUrl') || 'http://localhost:3002';
     const verificationUrl = `${webUrl}/verify-email?token=${result.verificationToken}`;
     
     try {
-      await this.emailService.sendVerificationEmail({
+      const emailResult = await this.emailService.sendVerificationEmail({
         email: result.user.email,
         firstName: result.user.firstName,
         verificationUrl,
       });
-      this.logger.log(`Verification email sent to ${result.user.email}`);
+      
+      if (emailResult.success) {
+        this.logger.log(`Verification email sent successfully to ${result.user.email} (Message ID: ${emailResult.messageId})`);
+      } else {
+        this.logger.error(`Failed to send verification email to ${result.user.email}: ${emailResult.error || 'Unknown error'}`);
+      }
     } catch (error) {
-      this.logger.error(`Failed to send verification email: ${error.message}`);
+      this.logger.error(`Failed to send verification email to ${result.user.email}: ${error instanceof Error ? error.message : 'Unknown error'}`, error instanceof Error ? error.stack : undefined);
       // Don't fail signup if email fails, but log it
     }
 

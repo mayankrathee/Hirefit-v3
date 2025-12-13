@@ -57,12 +57,26 @@ export class EmailService {
     const subject = `Verify your email - ${this.appName}`;
     const html = this.getVerificationEmailTemplate(data);
 
-    return this.emailProvider.sendEmail({
-      to: { email: data.email, name: data.firstName },
-      subject,
-      html,
-      metadata: { type: 'verification' },
-    });
+    try {
+      const result = await this.emailProvider.sendEmail({
+        to: { email: data.email, name: data.firstName },
+        subject,
+        html,
+        metadata: { type: 'verification' },
+      });
+      
+      if (!result.success) {
+        this.logger.error(`Email provider returned failure for ${data.email}: ${result.error || 'Unknown error'}`);
+      }
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`Exception sending verification email to ${data.email}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
   }
 
   // ============================================================================

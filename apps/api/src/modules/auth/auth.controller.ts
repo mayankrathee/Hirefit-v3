@@ -104,7 +104,7 @@ export class AuthController {
     
     if (!clientId) {
       this.logger.warn('Google OAuth not configured');
-      const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+      const webUrl = this.configService.get<string>('WEB_URL') || this.configService.get<string>('webUrl') || 'http://localhost:3002';
       res.redirect(`${webUrl}/login?error=${encodeURIComponent('Google OAuth not configured')}`);
       return;
     }
@@ -213,7 +213,7 @@ export class AuthController {
     
     if (!clientId) {
       this.logger.warn('Azure AD not configured');
-      const webUrl = this.configService.get<string>('webUrl') || 'http://localhost:3002';
+      const webUrl = this.configService.get<string>('WEB_URL') || this.configService.get<string>('webUrl') || 'http://localhost:3002';
       res.redirect(`${webUrl}/login?error=${encodeURIComponent('Azure AD not configured')}`);
       return;
     }
